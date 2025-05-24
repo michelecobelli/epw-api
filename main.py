@@ -1,16 +1,24 @@
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 from city_to_epw import run_epw_pipeline
-from supabase import create_client
+from postgrest import PostgrestClient
 import os
+import requests
 
 app = FastAPI()
 
-# Read Supabase config from environment
 SUPABASE_URL = os.getenv("SUPABASE_URL")
 SUPABASE_KEY = os.getenv("SUPABASE_KEY")
 SUPABASE_BUCKET = os.getenv("SUPABASE_BUCKET")
-supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
+
+storage_url = f"{SUPABASE_URL}/storage/v1/object"
+headers = {
+    "apikey": SUPABASE_KEY,
+    "Authorization": f"Bearer {SUPABASE_KEY}",
+}
+
+db = PostgrestClient(f"{SUPABASE_URL}/rest/v1")
+db.auth(SUPABASE_KEY)
 
 @app.post("/epw")
 async def generate_epw(request: Request):
@@ -20,7 +28,7 @@ async def generate_epw(request: Request):
     project_id = body.get("project_id")
 
     if not all([city, user_id, project_id]):
-        return JSONResponse(status_code=400, content={"error": "Missing city, user_id, or project_id"})
+        return JSONResponse(status_code=400, content={"error": "Missing fields"})
 
     epw_path = run_epw_pipeline(city)
     if not epw_path:
@@ -28,19 +36,16 @@ async def generate_epw(request: Request):
 
     file_name = os.path.basename(epw_path)
     object_path = f"{user_id}/{file_name}"
+    upload_url = f"{storage_url}/{SUPABASE_BUCKET}/{object_path}"
 
     with open(epw_path, "rb") as f:
-        supabase.storage.from_(SUPABASE_BUCKET).upload(object_path, f)
+        upload = requests.post(upload_url, headers=headers, data=f)
 
-    public_url = supabase.storage.from_(SUPABASE_BUCKET).get_public_url(object_path)
+    if upload.status_code != 200:
+        return JSONResponse(status_code=500, content={"error": "Upload to storage failed"})
 
-    # Save the EPW link in the projects table
-    supabase.table("projects").update({"epw_url": public_url}).eq("id", project_id).execute()
+    public_url = f"{SUPABASE_URL}/storage/v1/object/public/{SUPABASE_BUCKET}/{object_path}"
+
+    db.update("projects").eq("id", project_id).set({"epw_url": public_url}).execute()
 
     return JSONResponse(content={"epw_url": public_url})
-
-# Local use
-if __name__ == "__main__":
-    city_name = input("Enter city name: ")
-    result = run_epw_pipeline(city_name)
-    print(result)
