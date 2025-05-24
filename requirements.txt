@@ -8,4 +8,5 @@ googletrans==4.0.0rc1
 thefuzz[speedup]
 pycountry
 pycountry-convert
-supabase
+postgrest
+
