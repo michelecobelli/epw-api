@@ -1,7 +1,6 @@
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 from city_to_epw import run_epw_pipeline
-from postgrest import PostgrestClient
 import os
 import requests
 
@@ -12,13 +11,12 @@ SUPABASE_KEY = os.getenv("SUPABASE_KEY")
 SUPABASE_BUCKET = os.getenv("SUPABASE_BUCKET")
 
 storage_url = f"{SUPABASE_URL}/storage/v1/object"
+rest_url = f"{SUPABASE_URL}/rest/v1"
+
 headers = {
     "apikey": SUPABASE_KEY,
     "Authorization": f"Bearer {SUPABASE_KEY}",
 }
-
-db = PostgrestClient(f"{SUPABASE_URL}/rest/v1")
-db.auth(SUPABASE_KEY)
 
 @app.post("/epw")
 async def generate_epw(request: Request):
@@ -41,11 +39,19 @@ async def generate_epw(request: Request):
     with open(epw_path, "rb") as f:
         upload = requests.post(upload_url, headers=headers, data=f)
 
-    if upload.status_code != 200:
-        return JSONResponse(status_code=500, content={"error": "Upload to storage failed"})
+    if upload.status_code >= 400:
+        return JSONResponse(status_code=500, content={"error": "Upload failed"})
 
     public_url = f"{SUPABASE_URL}/storage/v1/object/public/{SUPABASE_BUCKET}/{object_path}"
 
-    db.update("projects").eq("id", project_id).set({"epw_url": public_url}).execute()
+    # ✅ PATCH the projects table
+    patch_url = f"{rest_url}/projects?id=eq.{project_id}"
+    patch_headers = headers.copy()
+    patch_headers["Content-Type"] = "application/json"
+    patch = requests.patch(patch_url, headers=patch_headers, json={"epw_url": public_url})
+
+    if patch.status_code >= 400:
+        return JSONResponse(status_code=500, content={"error": "Failed to update database"})
 
     return JSONResponse(content={"epw_url": public_url})
+
