@@ -36,11 +36,14 @@ async def generate_epw(request: Request):
     object_path = f"{user_id}/{file_name}"
     upload_url = f"{storage_url}/{SUPABASE_BUCKET}/{object_path}"
 
+    print("Uploading EPW to Supabase Storage...")
     with open(epw_path, "rb") as f:
         upload = requests.post(upload_url, headers=headers, data=f)
+    print("Upload response:", upload.status_code, upload.text)
 
     if upload.status_code >= 400:
         return JSONResponse(status_code=500, content={"error": "Upload failed"})
+
 
     public_url = f"{SUPABASE_URL}/storage/v1/object/public/{SUPABASE_BUCKET}/{object_path}"
 
@@ -48,7 +51,10 @@ async def generate_epw(request: Request):
     patch_url = f"{rest_url}/projects?id=eq.{project_id}"
     patch_headers = headers.copy()
     patch_headers["Content-Type"] = "application/json"
+    print("Updating project in Supabase...")
     patch = requests.patch(patch_url, headers=patch_headers, json={"epw_url": public_url})
+    print("PATCH response:", patch.status_code, patch.text)
+
 
     if patch.status_code >= 400:
         return JSONResponse(status_code=500, content={"error": "Failed to update database"})
