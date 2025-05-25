@@ -6,12 +6,12 @@ import requests
 
 app = FastAPI()
 
+# Load Supabase config from environment
 SUPABASE_URL = os.getenv("SUPABASE_URL")
 SUPABASE_KEY = os.getenv("SUPABASE_KEY")
 SUPABASE_BUCKET = os.getenv("SUPABASE_BUCKET")
 
 storage_url = f"{SUPABASE_URL}/storage/v1/object"
-rest_url = f"{SUPABASE_URL}/rest/v1"
 
 headers = {
     "apikey": SUPABASE_KEY,
@@ -23,10 +23,9 @@ async def generate_epw(request: Request):
     body = await request.json()
     city = body.get("city")
     user_id = body.get("user_id")
-    project_id = body.get("project_id")
 
-    if not all([city, user_id, project_id]):
-        return JSONResponse(status_code=400, content={"error": "Missing fields"})
+    if not all([city, user_id]):
+        return JSONResponse(status_code=400, content={"error": "Missing city or user_id"})
 
     epw_path = run_epw_pipeline(city)
     if not epw_path:
@@ -38,25 +37,11 @@ async def generate_epw(request: Request):
 
     print("Uploading EPW to Supabase Storage...")
     with open(epw_path, "rb") as f:
-        upload = requests.post(upload_url, headers=headers, data=f)
+        upload = requests.put(upload_url, headers=headers, data=f)
     print("Upload response:", upload.status_code, upload.text)
 
     if upload.status_code >= 400:
-        return JSONResponse(status_code=500, content={"error": "Upload failed"})
-
+        return JSONResponse(status_code=500, content={"error": "Upload to Supabase Storage failed"})
 
     public_url = f"{SUPABASE_URL}/storage/v1/object/public/{SUPABASE_BUCKET}/{object_path}"
-
-    # ✅ PATCH the projects table
-    patch_url = f"{rest_url}/projects?id=eq.{project_id}"
-    patch_headers = headers.copy()
-    patch_headers["Content-Type"] = "application/json"
-    print("Updating project in Supabase...")
-    patch = requests.patch(patch_url, headers=patch_headers, json={"epw_url": public_url})
-    print("PATCH response:", patch.status_code, patch.text)
-
-
-    if patch.status_code >= 400:
-        return JSONResponse(status_code=500, content={"error": "Failed to update database"})
-
     return JSONResponse(content={"epw_url": public_url})
