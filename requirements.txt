@@ -1,6 +1,5 @@
 fastapi
 uvicorn
-requests
 beautifulsoup4
 geopy
 langdetect
