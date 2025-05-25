@@ -1,69 +1,56 @@
-from fastapi import FastAPI, HTTPException, Request
-from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
+from fastapi import FastAPI, Request
+from fastapi.responses import JSONResponse
+from city_to_epw import run_epw_pipeline
 import os
-from city_to_epw import generate_epw_file
-from supabase import create_client
-import mimetypes
+import requests
 
 app = FastAPI()
 
-# Enable CORS for frontend access (like from Lovable)
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],  # You can restrict this to Lovable's domain
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-
-# Environment variables
 SUPABASE_URL = os.getenv("SUPABASE_URL")
 SUPABASE_KEY = os.getenv("SUPABASE_KEY")
 SUPABASE_BUCKET = os.getenv("SUPABASE_BUCKET")
 
-# Create Supabase client
-supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
+storage_url = f"{SUPABASE_URL}/storage/v1/object"
+rest_url = f"{SUPABASE_URL}/rest/v1"
 
-
-class EPWRequest(BaseModel):
-    city: str
-    user_id: str
-    project_id: str
-
+headers = {
+    "apikey": SUPABASE_KEY,
+    "Authorization": f"Bearer {SUPABASE_KEY}",
+}
 
 @app.post("/epw")
-async def generate_epw(request: EPWRequest):
-    try:
-        print(f"🔄 Request received for city: {request.city}")
+async def generate_epw(request: Request):
+    body = await request.json()
+    city = body.get("city")
+    user_id = body.get("user_id")
+    project_id = body.get("project_id")
 
-        epw_path, epw_filename = generate_epw_file(request.city)
+    if not all([city, user_id, project_id]):
+        return JSONResponse(status_code=400, content={"error": "Missing fields"})
 
-        if not os.path.exists(epw_path):
-            raise HTTPException(status_code=500, detail="EPW file generation failed.")
+    epw_path = run_epw_pipeline(city)
+    if not epw_path:
+        return JSONResponse(status_code=500, content={"error": "EPW generation failed"})
 
-        print(f"✅ EPW file saved at: {epw_path}")
+    file_name = os.path.basename(epw_path)
+    object_path = f"{user_id}/{file_name}"
+    upload_url = f"{storage_url}/{SUPABASE_BUCKET}/{object_path}"
 
-        # Upload to Supabase Storage with overwrite enabled
-        with open(epw_path, "rb") as file:
-            file_data = file.read()
-            response = supabase.storage.from_(SUPABASE_BUCKET).upload(
-                f"{request.user_id}/{epw_filename}", file_data, {"upsert": True}
-            )
-            print("📤 Upload response:", response)
+    with open(epw_path, "rb") as f:
+        upload = requests.post(upload_url, headers=headers, data=f)
 
-        # Construct public URL
-        public_url = f"{SUPABASE_URL}/storage/v1/object/public/{SUPABASE_BUCKET}/{request.user_id}/{epw_filename}"
+    if upload.status_code >= 400:
+        return JSONResponse(status_code=500, content={"error": "Upload failed"})
 
-        # Update the database with the new URL
-        update_response = supabase.table("projects").update(
-            {"epw_url": public_url}
-        ).eq("id", request.project_id).execute()
+    public_url = f"{SUPABASE_URL}/storage/v1/object/public/{SUPABASE_BUCKET}/{object_path}"
 
-        print("📝 DB Update response:", update_response)
+    # ✅ PATCH the projects table
+    patch_url = f"{rest_url}/projects?id=eq.{project_id}"
+    patch_headers = headers.copy()
+    patch_headers["Content-Type"] = "application/json"
+    patch = requests.patch(patch_url, headers=patch_headers, json={"epw_url": public_url})
 
-        return {"epw_url": public_url}
+    if patch.status_code >= 400:
+        return JSONResponse(status_code=500, content={"error": "Failed to update database"})
 
-    except Exception as e:
-        print(f"❌ Error: {str(e)}")
-        raise HTTPException(status_code=500, detail="Something went wrong.")
+    return JSONResponse(content={"epw_url": public_url})
