@@ -1,10 +1,23 @@
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
+from fastapi.middleware.cors import CORSMiddleware
 from city_to_epw import run_epw_pipeline
 import os
 import requests
 
 app = FastAPI()
+
+# 🔐 Allow requests from Lovable frontend
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[
+    "https://acc69026-efcc-49c0-9bf2-870ed51b6b57.lovableproject.com",
+    "https://my-climate-app.lovable.so"
+],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 # Load Supabase config from environment
 SUPABASE_URL = os.getenv("SUPABASE_URL")
