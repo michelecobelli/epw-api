@@ -7,7 +7,7 @@ import requests
 
 app = FastAPI()
 
-# 🔐 CORS setup
+# 🔐 CORS setup for Lovable
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
@@ -39,7 +39,7 @@ async def generate_epw(request: Request):
         project_id = body.get("project_id")
 
         if not all([city, user_id, project_id]):
-            return JSONResponse(status_code=400, content={"error": "Missing city, user_id or project_id"})
+            return JSONResponse(status_code=400, content={"error": "Missing city, user_id, or project_id"})
 
         print(f"📍 Generating EPW for city: {city}")
         epw_path = run_epw_pipeline(city)
@@ -51,24 +51,30 @@ async def generate_epw(request: Request):
         object_path = f"{folder_path}/{file_name}"
         upload_url = f"{storage_url}/{SUPABASE_BUCKET}/{object_path}"
 
-        # ❌ Delete existing files in the project folder
+        # 🧹 Clean up existing files in the project folder
         list_url = f"{storage_url}/list/{SUPABASE_BUCKET}"
-        list_body = {
-            "prefix": folder_path + "/"
-        }
+        list_body = { "prefix": folder_path + "/" }
+
         print("📁 Checking for existing files to delete...")
         list_response = requests.post(list_url, headers=headers, json=list_body)
 
         if list_response.status_code == 200:
             files = list_response.json()
-            for file in files:
-                delete_url = f"{storage_url}/{SUPABASE_BUCKET}/{file['name']}"
-                print("🗑️ Deleting:", file['name'])
-                requests.delete(delete_url, headers=headers)
-        else:
-            print("⚠️ Could not list existing files. Continuing anyway.")
+            paths = [file["name"] for file in files]
 
-        # ⬆️ Upload new EPW
+            if paths:
+                print("🗑️ Deleting files:", paths)
+                delete_url = f"{storage_url}/{SUPABASE_BUCKET}"
+                delete_response = requests.request(
+                    "DELETE", delete_url, headers=headers, json={"paths": paths}
+                )
+                print("🔁 Delete response:", delete_response.status_code, delete_response.text)
+            else:
+                print("✅ No existing files found.")
+        else:
+            print("⚠️ Could not list files for deletion:", list_response.status_code, list_response.text)
+
+        # ⬆️ Upload new EPW file
         with open(epw_path, "rb") as f:
             upload = requests.put(upload_url, headers=headers, data=f)
 
@@ -80,7 +86,8 @@ async def generate_epw(request: Request):
             })
 
         public_url = f"{SUPABASE_URL}/storage/v1/object/public/{SUPABASE_BUCKET}/{object_path}"
-        print("✅ File uploaded:", public_url)
+        print("✅ EPW file uploaded successfully:", public_url)
+
         return JSONResponse(content={"epw_url": public_url})
 
     except Exception as e:
