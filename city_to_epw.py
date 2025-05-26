@@ -306,6 +306,11 @@ def run_epw_pipeline(city_name):
             if zip_file_path:
                 print(f"\n📂 Extracting: {zip_file_path}")
                 try:
+                     # Clear existing EPW files before extracting new ones
+                    for f in os.listdir(EXTRACT_DIR):
+                        file_path = os.path.join(EXTRACT_DIR, f)
+                        if os.path.isfile(file_path):
+                            os.remove(file_path)
                     with zipfile.ZipFile(zip_file_path, "r") as zip_ref:
                         zip_ref.extractall(EXTRACT_DIR)
                     print("✅ Extraction complete.")
