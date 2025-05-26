@@ -60,13 +60,13 @@ async def generate_epw(request: Request):
 
         if list_response.status_code == 200:
             files = list_response.json()
-            paths = [file["name"] for file in files]
+            prefixes = [file["name"] for file in files]
 
-            if paths:
-                print("🗑️ Deleting files:", paths)
+            if prefixes:
+                print("🗑️ Deleting files:", prefixes)
                 delete_url = f"{storage_url}/{SUPABASE_BUCKET}"
                 delete_response = requests.request(
-                    "DELETE", delete_url, headers=headers, json={"paths": paths}
+                    "DELETE", delete_url, headers=headers, json={"prefixes": prefixes}
                 )
                 print("🔁 Delete response:", delete_response.status_code, delete_response.text)
             else:
