@@ -10,12 +10,9 @@ app = FastAPI()
 # 🔐 CORS setup for Lovable
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "https://acc69026-efcc-49c0-9bf2-870ed51b6b57.lovableproject.com",
-        "https://*.lovableproject.com"
-    ],
+    allow_origins=["*"]
     allow_credentials=True,
-    allow_methods=["GET", "POST"],
+    allow_methods=["*"],
     allow_headers=["*"],
 )
 
