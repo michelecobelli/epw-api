@@ -7,7 +7,7 @@ import requests
 
 app = FastAPI()
 
-# 🔐 CORS for Lovable domains
+# 🔐 CORS setup
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
@@ -25,7 +25,6 @@ SUPABASE_KEY = os.getenv("SUPABASE_KEY")
 SUPABASE_BUCKET = os.getenv("SUPABASE_BUCKET")
 
 storage_url = f"{SUPABASE_URL}/storage/v1/object"
-
 headers = {
     "apikey": SUPABASE_KEY,
     "Authorization": f"Bearer {SUPABASE_KEY}",
@@ -37,27 +36,42 @@ async def generate_epw(request: Request):
         body = await request.json()
         city = body.get("city")
         user_id = body.get("user_id")
+        project_id = body.get("project_id")
 
-        if not city or not user_id:
-            print("❌ Missing city or user_id")
-            return JSONResponse(status_code=400, content={"error": "Missing city or user_id"})
+        if not all([city, user_id, project_id]):
+            return JSONResponse(status_code=400, content={"error": "Missing city, user_id or project_id"})
 
         print(f"📍 Generating EPW for city: {city}")
         epw_path = run_epw_pipeline(city)
-
         if not epw_path:
-            print("❌ EPW generation failed for:", city)
             return JSONResponse(status_code=500, content={"error": "EPW generation failed"})
 
         file_name = os.path.basename(epw_path)
-        object_path = f"{user_id}/{file_name}"
+        folder_path = f"{user_id}/{project_id}"
+        object_path = f"{folder_path}/{file_name}"
         upload_url = f"{storage_url}/{SUPABASE_BUCKET}/{object_path}"
 
-        print("⬆️ Uploading to Supabase:", upload_url)
+        # ❌ Delete existing files in the project folder
+        list_url = f"{storage_url}/list/{SUPABASE_BUCKET}"
+        list_body = {
+            "prefix": folder_path + "/"
+        }
+        print("📁 Checking for existing files to delete...")
+        list_response = requests.post(list_url, headers=headers, json=list_body)
+
+        if list_response.status_code == 200:
+            files = list_response.json()
+            for file in files:
+                delete_url = f"{storage_url}/{SUPABASE_BUCKET}/{file['name']}"
+                print("🗑️ Deleting:", file['name'])
+                requests.delete(delete_url, headers=headers)
+        else:
+            print("⚠️ Could not list existing files. Continuing anyway.")
+
+        # ⬆️ Upload new EPW
         with open(epw_path, "rb") as f:
             upload = requests.put(upload_url, headers=headers, data=f)
 
-        print("📡 Upload response:", upload.status_code, upload.text)
         if upload.status_code >= 400:
             return JSONResponse(status_code=500, content={
                 "error": "Upload to Supabase failed",
@@ -66,8 +80,7 @@ async def generate_epw(request: Request):
             })
 
         public_url = f"{SUPABASE_URL}/storage/v1/object/public/{SUPABASE_BUCKET}/{object_path}"
-        print("✅ Upload successful:", public_url)
-
+        print("✅ File uploaded:", public_url)
         return JSONResponse(content={"epw_url": public_url})
 
     except Exception as e:
