@@ -13,7 +13,7 @@ numpy
 scipy
 pandas
 requests
-supabase
+supabase-py
 
 
 
