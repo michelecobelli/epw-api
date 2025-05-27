@@ -6,7 +6,7 @@ import os
 import requests
 from analysis.psychrometric import plot_psychrometric_chart_with_epw
 from analysis.utils import download_epw
-from supabase-py import create_client, Client
+from supabase import create_client, Client
 
 
 url: str = os.environ.get("SUPABASE_URL")
