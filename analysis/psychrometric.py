@@ -4,6 +4,7 @@ from scipy.optimize import fsolve
 import matplotlib.ticker as ticker
 import pandas as pd
 
+
 # Constants
 P = 1.01325  # bar (standard atmosphere)
 R = 0.08314  # m³·bar/(K·mol)
