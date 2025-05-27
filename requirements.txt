@@ -8,6 +8,13 @@ thefuzz[speedup]
 pycountry
 pycountry-convert
 requests
+matplotlib
+numpy
+scipy
+pandas
+supabase
+requests
+
 
 
 

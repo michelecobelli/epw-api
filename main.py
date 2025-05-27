@@ -4,6 +4,10 @@ from fastapi.middleware.cors import CORSMiddleware
 from city_to_epw import run_epw_pipeline
 import os
 import requests
+from analysis.psychrometric import plot_psychrometric_chart_with_epw
+from analysis.utils import download_epw
+from supabase import create_client
+import os
 
 app = FastAPI()
 
@@ -90,3 +94,31 @@ async def generate_epw(request: Request):
     except Exception as e:
         print("🔥 Server error:", str(e))
         return JSONResponse(status_code=500, content={"error": "Internal server error", "details": str(e)})
+
+
+@app.post("/psychrometric")
+async def get_psychrometric_chart(request: Request):
+    data = await request.json()
+    user_id = data.get("user_id")
+    project_id = data.get("project_id")
+
+    if not user_id or not project_id:
+        return JSONResponse(status_code=400, content={"error": "Missing user_id or project_id"})
+
+    try:
+        # 🔎 Query Supabase
+        result = supabase.table("projects").select("epw_url").eq("user_id", user_id).eq("id", project_id).execute()
+
+        if not result.data or "epw_url" not in result.data[0]:
+            return JSONResponse(status_code=404, content={"error": "EPW URL not found for this project."})
+
+        epw_url = result.data[0]["epw_url"]
+        local_epw = download_epw(epw_url)
+
+        # 📈 Generate psychrometric chart
+        chart_base64 = plot_psychrometric_chart_with_epw(local_epw)
+
+        return JSONResponse(content={"image_base64": chart_base64})
+
+    except Exception as e:
+        return JSONResponse(status_code=500, content={"error": str(e)})
